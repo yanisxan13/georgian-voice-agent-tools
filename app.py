@@ -481,3 +481,93 @@ def list_leads(x_vapi_secret: Optional[str] = Header(None)):
     with open(LEADS, encoding="utf-8") as f:
         leads = [json.loads(line) for line in f if line.strip()]
     return {"count": len(leads), "leads": leads}
+
+
+# --------------------------------------------------------------------------
+# /test — a standalone call page.
+# Vapi's own dashboard occasionally fails to render; this page talks to the
+# assistant directly through the Vapi Web SDK so testing never depends on it.
+# Served over HTTPS so the browser will grant microphone access (file:// won't).
+# Gated by the same shared secret to stop strangers burning call credits.
+# --------------------------------------------------------------------------
+
+VAPI_PUBLIC_KEY = os.environ.get("VAPI_PUBLIC_KEY", "")
+VAPI_ASSISTANT_ID = os.environ.get("VAPI_ASSISTANT_ID", "")
+
+TEST_PAGE = """<!doctype html>
+<html lang="ka"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ქართული AI აგენტი — ტესტი</title>
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;font:16px/1.5 system-ui,sans-serif;
+      background:#0d1117;color:#e6edf3;display:flex;justify-content:center;padding:24px}
+ .wrap{width:100%;max-width:680px}
+ h1{font-size:20px;margin:0 0 4px}
+ .sub{color:#8b949e;font-size:14px;margin-bottom:20px}
+ .row{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+ button{font:inherit;padding:12px 22px;border-radius:8px;border:0;cursor:pointer;font-weight:600}
+ #go{background:#2ea043;color:#fff}
+ #stop{background:#da3633;color:#fff}
+ button:disabled{opacity:.4;cursor:not-allowed}
+ #status{padding:10px 14px;border-radius:8px;background:#161b22;
+         border:1px solid #30363d;margin-bottom:16px;font-size:14px}
+ #log{background:#161b22;border:1px solid #30363d;border-radius:8px;
+      padding:14px;min-height:240px;max-height:52vh;overflow:auto}
+ .m{margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #21262d}
+ .who{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b949e}
+ .ai .who{color:#58a6ff} .you .who{color:#3fb950} .sys .who{color:#d29922}
+ .hint{color:#8b949e;font-size:13px;margin-top:16px}
+ code{background:#21262d;padding:2px 6px;border-radius:4px;font-size:13px}
+</style></head><body><div class="wrap">
+<h1>ქართული AI აგენტი — სატესტო ზარი</h1>
+<div class="sub">Vapi-ს დაფა არ არის საჭირო. მიკროფონი დაუშვით, როცა ბრაუზერი გკითხავთ.</div>
+<div class="row">
+  <button id="go">ზარის დაწყება</button>
+  <button id="stop" disabled>დასრულება</button>
+</div>
+<div id="status">მზადაა</div>
+<div id="log"></div>
+<div class="hint">სცადეთ: „გამარჯობა, ბათუმში ბინა მაინტერესებს." შემდეგ „ერთსაძინებლიანი, ოთხმოცი ათას დოლარამდე, ზღვის ხედით."<br>
+სწორი პასუხი: <code>C-0903 · 78 500 დოლარი</code></div>
+</div>
+<script type="module">
+const PUB="__PUB__", AID="__AID__";
+const $=i=>document.getElementById(i), log=$("log"), st=$("status");
+const say=(w,t,c)=>{const d=document.createElement("div");d.className="m "+c;
+  d.innerHTML='<div class="who">'+w+'</div><div>'+t.replace(/</g,"&lt;")+'</div>';
+  log.appendChild(d);log.scrollTop=log.scrollHeight;};
+if(!PUB){st.textContent="VAPI_PUBLIC_KEY not set on the server";}
+let vapi;
+try{
+  const {default:Vapi}=await import("https://esm.sh/@vapi-ai/web@2.3.9");
+  vapi=new Vapi(PUB);
+  vapi.on("call-start",()=>{st.textContent="ზარი მიმდინარეობს — ილაპარაკეთ ქართულად";
+    $("go").disabled=true;$("stop").disabled=false;});
+  vapi.on("call-end",()=>{st.textContent="ზარი დასრულდა";
+    $("go").disabled=false;$("stop").disabled=true;});
+  vapi.on("speech-start",()=>{st.textContent="აგენტი ლაპარაკობს — შეგიძლიათ შეაწყვეტინოთ";});
+  vapi.on("speech-end",()=>{st.textContent="გისმენთ";});
+  vapi.on("message",m=>{
+    if(m.type==="transcript"&&m.transcriptType==="final")
+      say(m.role==="assistant"?"აგენტი":"თქვენ",m.transcript,m.role==="assistant"?"ai":"you");
+    if(m.type==="tool-calls"||m.type==="function-call")
+      say("tool",JSON.stringify(m.toolCallList||m.functionCall||m),"sys");
+  });
+  vapi.on("error",e=>{st.textContent="ERROR: "+(e&&(e.errorMsg||e.message)||JSON.stringify(e));
+    $("go").disabled=false;$("stop").disabled=true;});
+}catch(e){ st.textContent="SDK load failed: "+e.message; }
+$("go").onclick=async()=>{try{st.textContent="ვუკავშირდები...";await vapi.start(AID);}
+  catch(e){st.textContent="ERROR: "+(e&&e.message||e);}};
+$("stop").onclick=()=>vapi.stop();
+</script></body></html>"""
+
+
+@app.get("/test")
+def test_page(k: str = ""):
+    from fastapi.responses import HTMLResponse
+    if API_SECRET and k != API_SECRET:
+        raise HTTPException(status_code=401, detail="add ?k=<API_SECRET> to the URL")
+    return HTMLResponse(
+        TEST_PAGE.replace("__PUB__", VAPI_PUBLIC_KEY).replace("__AID__", VAPI_ASSISTANT_ID)
+    )
