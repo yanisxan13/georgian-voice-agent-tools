@@ -1,0 +1,7 @@
+project,unit_id,status,floor,area_m2,bedrooms,view,price_usd,down_payment_percent,installment_months,notes
+DEMO ბათუმი Seaside,C-0903,available,9,48.5,1,sea,78500,20,24,DEMO DATA - replace before real calls
+DEMO ბათუმი Seaside,C-1502,available,15,52.0,1,sea,84000,30,18,DEMO DATA - replace before real calls
+DEMO ბათუმი Seaside,D-0704,available,7,68.0,2,sea,99000,20,36,DEMO DATA - replace before real calls
+DEMO ბათუმი Seaside,C-0301,sold,3,48.5,1,sea,74000,20,24,DEMO SOLD - must never be offered to a caller
+DEMO თბილისი Residence,A-1204,available,12,55.2,1,city,76000,20,24,DEMO DATA - replace before real calls
+DEMO თბილისი Residence,B-1807,available,18,71.0,2,city,92000,20,24,DEMO DATA - replace before real calls
