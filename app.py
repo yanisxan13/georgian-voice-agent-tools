@@ -21,7 +21,7 @@ from typing import Any, Optional
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
 
-app = FastAPI(title="Georgian Real Estate Voice Agent Tools", version="2.0.0")
+app = FastAPI(title="Georgian Real Estate Voice Agent Tools", version="2.1.0")
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 INVENTORY = os.environ.get("INVENTORY_PATH", os.path.join(BASE, "inventory.csv"))
@@ -57,6 +57,69 @@ PAYMENT_KA = {
     "installment": "შიდა განვადება",
     "mortgage": "იპოთეკა",
 }
+
+# --------------------------------------------------------------------------
+# City aliases — Latin <-> Georgian.
+# The LLM sends whatever the caller said, or a Latin transliteration of it.
+# Georgian is also heavily inflected: a caller says "ბათუმში" (in Batumi),
+# not "ბათუმი". Matching raw substrings fails in both directions, so we
+# resolve any spelling to a canonical set of stems and match on those.
+# --------------------------------------------------------------------------
+
+CITY_ALIASES = [
+    ("თბილის", "tbilis"),
+    ("ბათუმ", "batum"),
+    ("ქუთაის", "kutais"),
+    ("რუსთავ", "rustav"),
+    ("გუდაურ", "gudaur"),
+    ("ბაკურიან", "bakurian"),
+    ("ანაკლი", "anakli"),
+    ("ქობულეთ", "kobulet"),
+    ("გონიო", "gonio"),
+    ("წყალტუბო", "tskaltubo"),
+    ("ბორჯომ", "borjom"),
+    ("მცხეთ", "mtskhet"),
+    ("სიღნაღ", "sighnagh"),
+    ("ურეკ", "urek"),
+    ("შეკვეთილ", "shekvetil"),
+    ("კაჭრეთ", "kachret"),
+    ("ჩაქვ", "chakv"),
+    ("მახინჯაურ", "makhinjaur"),
+]
+
+
+def project_stems(value: Any) -> list[str]:
+    """All stems a project string could be referred to by, lowercased."""
+    if value is None:
+        return []
+    v = str(value).strip().lower()
+    if not v:
+        return []
+    stems = [v]
+    for ka, la in CITY_ALIASES:
+        if ka in v or la in v:
+            stems.extend([ka, la])
+    return stems
+
+
+def project_matches(query: Any, row_project: Any) -> bool:
+    """True if the caller's project/city refers to this row's project."""
+    q = str(query or "").strip().lower()
+    r = str(row_project or "").strip().lower()
+    if not q:
+        return True
+    if not r:
+        return False
+    if q in r or r in q:
+        return True
+    # Resolve both sides to city stems and look for any overlap.
+    q_stems = set(project_stems(q))
+    r_stems = set(project_stems(r))
+    if q_stems & r_stems:
+        return True
+    # Last resort: any stem of the query appearing inside the row, or vice versa.
+    return any(s in r for s in q_stems if len(s) >= 4) or \
+           any(s in q for s in r_stems if len(s) >= 4)
 
 
 def normalise_view(value: Any) -> Optional[str]:
@@ -161,7 +224,7 @@ def matches(r: dict, q: dict) -> bool:
     if r.get("status", "").lower() != "available":
         return False
     if q.get("project"):
-        if str(q["project"]).lower() not in r.get("project", "").lower():
+        if not project_matches(q["project"], r.get("project", "")):
             return False
     if q.get("max_price_usd") is not None:
         price = to_float(r.get("price_usd"))
